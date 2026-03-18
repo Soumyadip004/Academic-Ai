@@ -31,10 +31,10 @@ logger = logging.getLogger(__name__)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Startup / shutdown lifecycle for the FAISS vector store."""
-    logger.info("Initialising vector store …")
-    VectorStore.get()  # eagerly load model + index
-    logger.info("AI Academic Assistant is ready.")
+    """Startup / shutdown lifecycle for the AI Assistant."""
+    logger.info("AI Academic Assistant is starting up.")
+    # We load the VectorStore lazily on first request to avoid 
+    # Render port-scan timeouts during heavy model loading.
     yield
     logger.info("Shutting down.")
 
