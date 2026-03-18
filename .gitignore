@@ -132,7 +132,7 @@ vector_store/
 *.txt
 !requirements.txt
 !README.md
-!test_knowledge.txt
+!runtime.txt
 
 # Node.js
 node_modules/
