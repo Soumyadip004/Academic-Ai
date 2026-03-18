@@ -7,9 +7,7 @@ import logging
 from dataclasses import dataclass, field
 from pathlib import Path
 
-import faiss
 import numpy as np
-from sentence_transformers import SentenceTransformer
 
 from backend.config import settings
 
@@ -32,6 +30,9 @@ class VectorStore:
     _instance: "VectorStore | None" = None
 
     def __init__(self) -> None:
+        from sentence_transformers import SentenceTransformer
+        import faiss
+
         logger.info("Loading embedding model '%s' ...", settings.embedding_model)
         self.model = SentenceTransformer(settings.embedding_model)
         self.dimension: int = self.model.get_sentence_embedding_dimension()
@@ -90,6 +91,7 @@ class VectorStore:
 
     def clear(self) -> None:
         """Clear the vector index and metadata."""
+        import faiss
         self.index = faiss.IndexFlatIP(self.dimension)
         self.metadata = []
         if settings.persist_data:
@@ -164,6 +166,7 @@ class VectorStore:
     # ── Persistence ─────────────────────────────────────────────────
 
     def _save(self) -> None:
+        import faiss
         idx_path = settings.vector_store_dir / "index.faiss"
         meta_path = settings.vector_store_dir / "metadata.json"
         faiss.write_index(self.index, str(idx_path))
@@ -176,6 +179,7 @@ class VectorStore:
         logger.debug("Vector store saved (%d vectors).", self.index.ntotal)
 
     def _load(self) -> None:
+        import faiss
         idx_path = settings.vector_store_dir / "index.faiss"
         meta_path = settings.vector_store_dir / "metadata.json"
         if idx_path.exists() and meta_path.exists():
