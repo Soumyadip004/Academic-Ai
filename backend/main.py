@@ -73,11 +73,10 @@ app.include_router(auth.router)
 @app.get("/", tags=["Health"])
 async def health_check():
     """Simple health-check / root endpoint."""
-    store = VectorStore.get()
     return {
         "status": "ok",
         "service": "AI Academic Assistant",
-        "vectors_stored": store.total_vectors,
+        "note": "AI models are loaded lazily on first request."
     }
 
 
