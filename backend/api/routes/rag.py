@@ -10,7 +10,7 @@ from backend.services import rag_service
 router = APIRouter(prefix="/api/rag", tags=["RAG Chat"])
 
 
-@router.post("/", response_model=RAGChatResponse)
+@router.post("/chat", response_model=RAGChatResponse)
 async def rag_chat(req: RAGChatRequest, x_user_id: str | None = Header(None, alias="X-User-Id")):
     """Ask a question and receive an answer with cited document sources."""
     return rag_service.query(
