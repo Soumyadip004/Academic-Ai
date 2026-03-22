@@ -33,13 +33,6 @@ logger = logging.getLogger(__name__)
 async def lifespan(app: FastAPI):
     """Startup / shutdown lifecycle for the AI Assistant."""
     logger.info("AI Academic Assistant is starting up.")
-    
-    # Proactively load the VectorStore (and its embedding model) in a background thread.
-    # This prevents the first request from timing out while keeping the 
-    # startup instant for the Render port-scan check.
-    import asyncio
-    asyncio.create_task(asyncio.to_thread(VectorStore.get))
-    
     yield
     logger.info("Shutting down.")
 

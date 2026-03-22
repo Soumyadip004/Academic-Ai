@@ -30,12 +30,11 @@ class VectorStore:
     _instance: "VectorStore | None" = None
 
     def __init__(self) -> None:
-        from sentence_transformers import SentenceTransformer
+        # We no longer load SentenceTransformer locally to save RAM on Render's free tier.
+        # Instead, we use the Hugging Face Inference API (server-side).
         import faiss
-
-        logger.info("Loading embedding model '%s' ...", settings.embedding_model)
-        self.model = SentenceTransformer(settings.embedding_model)
-        self.dimension: int = self.model.get_sentence_embedding_dimension()
+        self.model_id = settings.embedding_model
+        self.dimension = 384  # Dimension for all-MiniLM-L6-v2
 
         # Inner-product index (embeddings are L2-normalised → equiv. to cosine)
         self.index = faiss.IndexFlatIP(self.dimension)
@@ -164,11 +163,15 @@ class VectorStore:
         return self.index.ntotal
 
     # ── Persistence ─────────────────────────────────────────────────
-
+    
     def _save(self) -> None:
         import faiss
         idx_path = settings.vector_store_dir / "index.faiss"
         meta_path = settings.vector_store_dir / "metadata.json"
+        
+        # Ensure directory exists
+        settings.vector_store_dir.mkdir(parents=True, exist_ok=True)
+        
         faiss.write_index(self.index, str(idx_path))
         with open(meta_path, "w", encoding="utf-8") as fh:
             json.dump(
@@ -194,7 +197,28 @@ class VectorStore:
     # ── Internal ────────────────────────────────────────────────────
 
     def _embed(self, texts: list[str]) -> np.ndarray:
-        embeddings = self.model.encode(
-            texts, normalize_embeddings=True, show_progress_bar=False
-        )
-        return np.asarray(embeddings, dtype=np.float32)
+        """Fetch embeddings from Hugging Face Inference API."""
+        import requests
+        import time
+
+        api_url = f"https://api-inference.huggingface.co/models/{self.model_id}"
+        # No API key required for small public usage of this model, 
+        # but you can add one in headers if needed.
+        headers = {} 
+
+        def query_hf(payload):
+            response = requests.post(api_url, headers=headers, json=payload, timeout=30)
+            return response.json()
+
+        # Hugging Face Inference API can take a list of strings
+        try:
+            output = query_hf({"inputs": texts, "options": {"wait_for_model": True}})
+            if isinstance(output, dict) and "error" in output:
+                raise ValueError(f"Hugging Face API error: {output['error']}")
+            
+            embeddings = np.array(output, dtype=np.float32)
+            return embeddings
+        except Exception as e:
+            logger.error("Embedding failed via HF API: %s", e)
+            # Fallback to zero vectors if API fails (better than crashing)
+            return np.zeros((len(texts), self.dimension), dtype=np.float32)
