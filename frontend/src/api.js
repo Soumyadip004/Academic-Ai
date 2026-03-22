@@ -1,8 +1,19 @@
 import axios from 'axios'
 
+const rawBaseURL = import.meta.env.VITE_API_URL || '/api'
+// Normalize URL: remove any trailing slashes to avoid double slashes in concatenated paths
+const baseURL = rawBaseURL.endsWith('/') ? rawBaseURL.slice(0, -1) : rawBaseURL
+
 const api = axios.create({
-  baseURL: import.meta.env.VITE_API_URL || '/api',
-  timeout: 120000,
+  baseURL,
+  timeout: 300000,
+})
+
+// ── Debug Interceptor (for deployment monitoring) ──────────
+api.interceptors.request.use((config) => {
+  const fullUrl = `${config.baseURL}${config.url}`
+  console.log(`[API] ${config.method?.toUpperCase()} ${fullUrl}`)
+  return config
 })
 
 // ── Auth Interceptor ───────────────────────────────────────
