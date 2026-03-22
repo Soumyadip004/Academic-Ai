@@ -201,7 +201,7 @@ class VectorStore:
         import requests
         import time
 
-        api_url = f"https://api-inference.huggingface.co/models/{self.model_id}"
+        api_url = f"https://router.huggingface.co/hf-inference/models/{self.model_id}"
         # No API key required for small public usage of this model, 
         # but you can add one in headers if needed.
         headers = {} 
