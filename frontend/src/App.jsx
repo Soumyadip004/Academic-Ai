@@ -10,6 +10,7 @@ import Home from './pages/Home';
 import Pricing from './pages/Pricing';
 import Faq from './pages/Faq';
 import Support from './pages/Support';
+import About from './pages/About';
 import Login from './pages/Login';
 
 /* Dashboard Pages */
@@ -39,6 +40,7 @@ export default function App() {
           <Route path="pricing" element={<Pricing />} />
           <Route path="faq" element={<Faq />} />
           <Route path="support" element={<Support />} />
+          <Route path="about" element={<About />} />
         </Route>
 
         {/* ── Auth Route ──────────────────────────────────────────── */}

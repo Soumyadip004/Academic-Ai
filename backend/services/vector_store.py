@@ -1,48 +1,63 @@
-"""FAISS vector store wrapper with SentenceTransformer embeddings."""
+"""ChromaDB vector store wrapper with external embeddings."""
 
 from __future__ import annotations
 
-import json
 import logging
-from dataclasses import dataclass, field
+import uuid
 from pathlib import Path
+from typing import Any
 
 import numpy as np
+import chromadb
+from sentence_transformers import SentenceTransformer
+from chromadb.config import Settings as ChromaSettings
 
 from backend.config import settings
+from backend.models.schemas import ChunkMetadata
 
 logger = logging.getLogger(__name__)
 
 
-@dataclass
-class ChunkMetadata:
-    """Metadata stored alongside each embedded chunk."""
-    doc_id: str
-    user_id: str  # Added to track ownership
-    filename: str
-    chunk_index: int
-    text: str
-
-
 class VectorStore:
-    """Thin wrapper around a FAISS flat-IP index + SentenceTransformer."""
+    """Wrapper around ChromaDB for vector search and metadata management."""
 
     _instance: "VectorStore | None" = None
 
     def __init__(self) -> None:
-        # We no longer load SentenceTransformer locally to save RAM on Render's free tier.
-        # Instead, we use the Hugging Face Inference API (server-side).
-        import faiss
+        """Initialize ChromaDB and local embedding model."""
+        self.persist_directory = str(settings.vector_store_dir)
+        
+        # Ensure directory exists
+        Path(self.persist_directory).mkdir(parents=True, exist_ok=True)
+
+        # Initialize client (uses SQLite for persistence)
+        self.client = chromadb.PersistentClient(
+            path=self.persist_directory,
+            settings=ChromaSettings(allow_reset=True)
+        )
+        
+        # Get or create collection
+        self.collection = self.client.get_or_create_collection(
+            name="academic_ai",
+            metadata={"hnsw:space": "cosine"}
+        )
+        
         self.model_id = settings.embedding_model
-        self.dimension = 768  # Dimension for all-mpnet-base-v2
-
-        # Inner-product index (embeddings are L2-normalised → equiv. to cosine)
-        self.index = faiss.IndexFlatIP(self.dimension)
-        self.metadata: list[ChunkMetadata] = []
-
-        # Try to load a previously saved index if persistence is enabled
-        if settings.persist_data:
-            self._load()
+        logger.info("Loading local embedding model: %s...", self.model_id)
+        
+        # Load model locally
+        try:
+            self.model = SentenceTransformer(self.model_id)
+            self.dimension = self.model.get_sentence_embedding_dimension()
+        except Exception as e:
+            logger.error("Failed to load local model: %s. Using default.", e)
+            self.model = SentenceTransformer("all-MiniLM-L6-v2")
+            self.dimension = 384
+            
+        logger.info(
+            "ChromaDB initialized. Local Engine: %s, Dim: %d", 
+            self.model_id, self.dimension
+        )
 
     # ── Singleton ───────────────────────────────────────────────────
 
@@ -61,41 +76,47 @@ class VectorStore:
         user_id: str,
         filename: str,
     ) -> int:
-        """Embed *texts*, add them to the index, and persist to disk.
+        """Embed *texts*, add them to Chroma with metadata.
 
         Returns the number of vectors added.
         """
         if not texts:
             return 0
 
-        embeddings = self._embed(texts)
-        start_idx = len(self.metadata)
+        embeddings = self._embed(texts).tolist()  # Chroma expects list of floats
+        
+        # Create unique IDs for each chunk
+        ids = [f"{doc_id}_{i}" for i in range(len(texts))]
+        
+        # Metadata for filtering
+        metadatas = [
+            {
+                "doc_id": doc_id,
+                "user_id": user_id,
+                "filename": filename,
+                "chunk_index": i
+            }
+            for i in range(len(texts))
+        ]
 
-        for i, txt in enumerate(texts):
-            self.metadata.append(
-                ChunkMetadata(
-                    doc_id=doc_id,
-                    user_id=user_id,
-                    filename=filename,
-                    chunk_index=start_idx + i,
-                    text=txt,
-                )
-            )
-
-        self.index.add(embeddings)
-        if settings.persist_data:
-            self._save()
-        logger.info("Added %d chunks for doc '%s'.", len(texts), doc_id)
+        self.collection.add(
+            ids=ids,
+            embeddings=embeddings,
+            metadatas=metadatas,
+            documents=texts
+        )
+        
+        logger.info("Added %d chunks to Chroma for doc '%s'.", len(texts), doc_id)
         return len(texts)
 
     def clear(self) -> None:
-        """Clear the vector index and metadata."""
-        import faiss
-        self.index = faiss.IndexFlatIP(self.dimension)
-        self.metadata = []
-        if settings.persist_data:
-            self._save()
-        logger.info("Vector store cleared.")
+        """Clear the entire collection."""
+        self.client.delete_collection("academic_ai")
+        self.collection = self.client.get_or_create_collection(
+            name="academic_ai",
+            metadata={"hnsw:space": "cosine"}
+        )
+        logger.info("ChromaDB collection cleared.")
 
     def search(
         self,
@@ -103,122 +124,116 @@ class VectorStore:
         top_k: int | None = None,
         doc_id: str | None = None,
         user_id: str | None = None,
-    ) -> list[tuple[ChunkMetadata, float]]:
-        """Return the *top_k* most similar chunks to *query*."""
-        if self.index.ntotal == 0:
+    ) -> list[tuple[Any, float]]:
+        """Return the *top_k* most similar chunks using Chroma metadata filtering."""
+        if self.collection.count() == 0:
             return []
 
-        # If filtering by doc_id, we might need to search more neighbors 
-        # because faiss InnerProduct search doesn't support native filtering.
         target_k = top_k or settings.top_k_results
-        search_k = target_k
-        if doc_id or user_id:
-            search_k = min(self.index.ntotal, max(search_k * 5, 100))
+        query_vec = self._embed([query]).tolist()
 
-        query_vec = self._embed([query])
-        scores, indices = self.index.search(query_vec, search_k)
+        # Build filter
+        where_filter = {}
+        if doc_id and user_id:
+            where_filter = {"$and": [{"doc_id": doc_id}, {"user_id": user_id}]}
+        elif doc_id:
+            where_filter = {"doc_id": doc_id}
+        elif user_id:
+            where_filter = {"user_id": user_id}
 
-        results: list[tuple[ChunkMetadata, float]] = []
-        for score, idx in zip(scores[0], indices[0]):
-            if idx < 0:
-                continue
-            meta = self.metadata[idx]
-            if doc_id and meta.doc_id != doc_id:
-                continue
-            if user_id and meta.user_id != user_id:
-                continue
+        results = self.collection.query(
+            query_embeddings=query_vec,
+            n_results=target_k,
+            where=where_filter,
+            include=["documents", "metadatas", "distances"]
+        )
+
+        final_results = []
+        if not results["ids"] or not results["ids"][0]:
+            return []
+
+        for i in range(len(results["ids"][0])):
+            meta_raw = results["metadatas"][0][i]
+            text = results["documents"][0][i]
+            dist = results["distances"][0][i]
             
-            results.append((meta, float(score)))
-            if len(results) >= target_k:
-                break
-        return results
+            similarity = 1.0 - dist
+            
+            meta = ChunkMetadata(
+                doc_id=meta_raw["doc_id"],
+                user_id=meta_raw["user_id"],
+                filename=meta_raw["filename"],
+                chunk_index=meta_raw["chunk_index"],
+                text=text
+            )
+            final_results.append((meta, float(similarity)))
+
+        return final_results
 
     def search_by_vector(
         self,
         vector: np.ndarray,
         top_k: int | None = None,
-    ) -> list[tuple[ChunkMetadata, float]]:
+    ) -> list[tuple[Any, float]]:
         """Search by a pre-computed embedding vector."""
-        if self.index.ntotal == 0:
+        if self.collection.count() == 0:
             return []
 
-        k = min(top_k or settings.top_k_results, self.index.ntotal)
+        k = min(top_k or settings.top_k_results, self.collection.count())
         if vector.ndim == 1:
             vector = vector.reshape(1, -1)
-        scores, indices = self.index.search(vector, k)
+        
+        query_vec = vector.tolist()
 
-        results: list[tuple[ChunkMetadata, float]] = []
-        for score, idx in zip(scores[0], indices[0]):
-            if idx < 0:
-                continue
-            results.append((self.metadata[idx], float(score)))
-        return results
+        results = self.collection.query(
+            query_embeddings=query_vec,
+            n_results=k,
+            include=["documents", "metadatas", "distances"]
+        )
+
+        final_results = []
+        if not results["ids"] or not results["ids"][0]:
+            return []
+
+        for i in range(len(results["ids"][0])):
+            meta_raw = results["metadatas"][0][i]
+            text = results["documents"][0][i]
+            dist = results["distances"][0][i]
+            similarity = 1.0 - dist
+            
+            meta = ChunkMetadata(
+                doc_id=meta_raw["doc_id"],
+                user_id=meta_raw["user_id"],
+                filename=meta_raw["filename"],
+                chunk_index=meta_raw["chunk_index"],
+                text=text
+            )
+            final_results.append((meta, float(similarity)))
+
+        return final_results
 
     def embed_texts(self, texts: list[str]) -> np.ndarray:
-        """Expose embedding for external callers (e.g. plagiarism)."""
+        """Expose embedding for external callers."""
         return self._embed(texts)
 
     @property
     def total_vectors(self) -> int:
-        return self.index.ntotal
-
-    # ── Persistence ─────────────────────────────────────────────────
-    
-    def _save(self) -> None:
-        import faiss
-        idx_path = settings.vector_store_dir / "index.faiss"
-        meta_path = settings.vector_store_dir / "metadata.json"
-        
-        # Ensure directory exists
-        settings.vector_store_dir.mkdir(parents=True, exist_ok=True)
-        
-        faiss.write_index(self.index, str(idx_path))
-        with open(meta_path, "w", encoding="utf-8") as fh:
-            json.dump(
-                [m.__dict__ for m in self.metadata],
-                fh,
-                ensure_ascii=False,
-            )
-        logger.debug("Vector store saved (%d vectors).", self.index.ntotal)
-
-    def _load(self) -> None:
-        import faiss
-        idx_path = settings.vector_store_dir / "index.faiss"
-        meta_path = settings.vector_store_dir / "metadata.json"
-        if idx_path.exists() and meta_path.exists():
-            self.index = faiss.read_index(str(idx_path))
-            with open(meta_path, "r", encoding="utf-8") as fh:
-                raw = json.load(fh)
-            self.metadata = [ChunkMetadata(**item) for item in raw]
-            logger.info(
-                "Loaded vector store with %d vectors.", self.index.ntotal
-            )
+        return self.collection.count()
 
     # ── Internal ────────────────────────────────────────────────────
 
     def _embed(self, texts: list[str]) -> np.ndarray:
-        """Fetch embeddings from Hugging Face Inference API."""
-        import requests
-        import time
-
-        api_url = f"https://router.huggingface.co/hf-inference/models/{self.model_id}"
-        # No API key required for small public usage of this model, 
-        # but you can add one in headers if needed.
-        headers = {} 
-
-        def query_hf(payload):
-            response = requests.post(api_url, headers=headers, json=payload, timeout=30)
-            return response.json()
-
-        # Hugging Face Inference API can take a list of strings
+        """Fetch embeddings locally using sentence-transformers."""
         try:
-            output = query_hf({"inputs": texts, "options": {"wait_for_model": True}})
-            if isinstance(output, dict) and "error" in output:
-                raise ValueError(f"Hugging Face API error: {output['error']}")
-            
-            embeddings = np.array(output, dtype=np.float32)
-            return embeddings
+            # Local inference is fast and handled by the library
+            embeddings = self.model.encode(
+                texts, 
+                convert_to_numpy=True, 
+                normalize_embeddings=True, # Critical for cosine similarity
+                show_progress_bar=False
+            )
+            return embeddings.astype(np.float32)
+
         except Exception as e:
-            logger.error("Embedding failed via HF API: %s", e)
-            # Fallback to zero vectors if API fails (better than crashing)
+            logger.error("Local embedding failed: %s", e)
             return np.zeros((len(texts), self.dimension), dtype=np.float32)

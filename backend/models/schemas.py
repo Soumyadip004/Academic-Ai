@@ -5,6 +5,15 @@ from __future__ import annotations
 from pydantic import BaseModel, Field
 
 
+class ChunkMetadata(BaseModel):
+    """Metadata for each embedded chunk."""
+    doc_id: str
+    user_id: str
+    filename: str
+    chunk_index: int
+    text: str
+
+
 # ── Document ────────────────────────────────────────────────────────────────
 
 class DocumentInfo(BaseModel):

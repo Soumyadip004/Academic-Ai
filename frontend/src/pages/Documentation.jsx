@@ -1,10 +1,58 @@
-import { Book, Code, Terminal, Shield, Zap, Globe, Cpu, Sun, Moon, AlertTriangle, FileText, MessageSquare, Search, CheckCircle, Activity } from 'lucide-react';
+import React, { useState } from 'react';
+import { 
+  Book, Code, Terminal, Shield, Zap, Globe, Cpu, Sun, Moon, 
+  AlertTriangle, FileText, MessageSquare, Search, CheckCircle, 
+  Activity, Copy, Check, ChevronRight
+} from 'lucide-react';
 import { useTheme } from '../context/ThemeContext';
 
 const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:8000";
 
-const EndpointSection = ({ id, icon: Icon, title, description, method, path, params, requestExample, responseExample, children }) => (
-  <section className="docs-section mt-5 pt-4 border-top" id={id}>
+const CodeTabBlock = ({ examples }) => {
+  const [activeTab, setActiveTab] = useState('bash');
+  const [copied, setCopied] = useState(false);
+
+  const copyToClipboard = () => {
+    navigator.clipboard.writeText(examples[activeTab]);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
+  return (
+    <div className="code-tab-container mt-3">
+      <div className="code-tabs-header">
+        <button 
+          className={`code-tab-btn ${activeTab === 'bash' ? 'active' : ''}`}
+          onClick={() => setActiveTab('bash')}
+        >
+          cURL
+        </button>
+        <button 
+          className={`code-tab-btn ${activeTab === 'python' ? 'active' : ''}`}
+          onClick={() => setActiveTab('python')}
+        >
+          Python
+        </button>
+        <button 
+          className={`code-tab-btn ${activeTab === 'js' ? 'active' : ''}`}
+          onClick={() => setActiveTab('js')}
+        >
+          Node.js
+        </button>
+        <button className="copy-btn" onClick={copyToClipboard}>
+          {copied ? <Check size={14} /> : <Copy size={14} />}
+          {copied ? 'Copied!' : 'Copy'}
+        </button>
+      </div>
+      <div className="code-block-body">
+        <pre><code>{examples[activeTab]}</code></pre>
+      </div>
+    </div>
+  );
+};
+
+const EndpointSection = ({ id, icon: Icon, title, description, method, path, params, examples, responseExample, children }) => (
+  <section className="docs-section mb-5" id={id}>
     <div className="docs-three-column">
       <div className="docs-col-content">
         <div className="section-header">
@@ -14,9 +62,8 @@ const EndpointSection = ({ id, icon: Icon, title, description, method, path, par
         <p className="endpoint-description">{description}</p>
         
         {method && (
-          <div className="endpoint-badge mb-4">
-            <span className={`method ${method.toLowerCase()}`}>{method}</span>
-            <code>{path}</code>
+          <div className={`method-label ${method.toLowerCase()}`}>
+            {method} <span style={{ opacity: 0.5, margin: '0 8px' }}>•</span> {path}
           </div>
         )}
 
@@ -48,25 +95,17 @@ const EndpointSection = ({ id, icon: Icon, title, description, method, path, par
       </div>
 
       <div className="docs-col-code">
-        {requestExample && (
-          <div className="code-block">
-            <div className="code-title">Example Request</div>
-            <div className="code-header">
-              <span>cURL</span>
-              <span className="lang">BASH</span>
-            </div>
-            <pre><code>{requestExample}</code></pre>
-          </div>
-        )}
+        {examples && <CodeTabBlock examples={examples} />}
         
         {responseExample && (
-          <div className="code-block mt-3">
-            <div className="code-title">Example Response</div>
-            <div className="code-header">
-              <span>JSON</span>
+          <div className="code-tab-container mt-4" style={{ background: '#1e293b' }}>
+            <div className="code-header" style={{ borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
+              <span>RESPONSE</span>
               <span className="response">200 OK</span>
             </div>
-            <pre><code>{responseExample}</code></pre>
+            <pre style={{ padding: '20px', margin: 0, fontSize: '0.8rem' }}>
+              <code>{responseExample}</code>
+            </pre>
           </div>
         )}
       </div>
@@ -79,19 +118,20 @@ export default function Documentation() {
 
   return (
     <div className="docs-page fade-in-up">
-      <div className="page-header text-center" style={{ position: 'relative', paddingBottom: '40px' }}>
-        <div style={{ position: 'absolute', right: 0, top: 0, display: 'flex', alignItems: 'center', gap: '8px' }}>
-          <Sun size={14} className={theme === 'light' ? 'text-warning' : 'text-muted'} />
-          <label className="theme-slider">
-            <input type="checkbox" checked={theme === 'dark'} onChange={toggleTheme} />
-            <span className="slider-round"></span>
-          </label>
-          <Moon size={14} className={theme === 'dark' ? 'text-accent' : 'text-muted'} />
+      {/* ── Status & Header ── */}
+      <div className="status-indicator-bar">
+        <div className="status-badge">
+          <div className="status-dot"></div>
+          API Operational
         </div>
-        <div className="badge badge-info mb-3">Developer Hub v1.0.0</div>
-        <h1 className="text-gradient" style={{ fontSize: '3rem' }}>API Reference</h1>
-        <p className="text-secondary" style={{ fontSize: '1.2rem' }}>
-          Explore our endpoints and integrate Academic AI into your research workflows.
+        <div className="text-muted" style={{ fontSize: '0.75rem' }}>Incidents: 0 in last 30 days</div>
+      </div>
+
+      <div className="page-header text-center" style={{ position: 'relative', marginBottom: '64px' }}>
+        <div className="badge badge-info mb-3">Enterprise Dev Portal v1.2</div>
+        <h1 className="text-gradient" style={{ fontSize: '3.5rem', fontWeight: 800 }}>Developer Documentation</h1>
+        <p className="text-secondary" style={{ fontSize: '1.25rem', maxWidth: '700px', margin: '16px auto' }}>
+          Seamlessly integrate state-of-the-art AI into your academic or corporate research infrastructure.
         </p>
       </div>
 
@@ -101,48 +141,65 @@ export default function Documentation() {
           <nav className="docs-nav-sticky">
             <div className="nav-group">
               <label>Introduction</label>
-              <a href="#welcome" className="nav-link"><Zap size={14} /> Welcome</a>
+              <a href="#welcome" className="nav-link"><Zap size={14} /> Getting Started</a>
               <a href="#auth" className="nav-link"><Shield size={14} /> Authentication</a>
             </div>
             
             <div className="nav-group mt-4">
-              <label>Documents</label>
-              <a href="#doc-upload" className="nav-link"><FileText size={14} /> Upload File</a>
-              <a href="#doc-list" className="nav-link"><Activity size={14} /> List Documents</a>
-              <a href="#doc-delete" className="nav-link"><AlertTriangle size={14} /> Delete Document</a>
+              <label>Core Services</label>
+              <a href="#doc-upload" className="nav-link"><FileText size={14} /> Document Vault</a>
+              <a href="#chat-rag" className="nav-link"><MessageSquare size={14} /> Knowledge Retrieval</a>
             </div>
 
             <div className="nav-group mt-4">
-              <label>Chat</label>
-              <a href="#chat-rag" className="nav-link"><MessageSquare size={14} /> Knowledge Chat</a>
-              <a href="#chat-gen" className="nav-link"><Cpu size={14} /> General AI</a>
-            </div>
-
-            <div className="nav-group mt-4">
-              <label>Academic Tools</label>
+              <label>Intelligence</label>
               <a href="#tool-plag" className="nav-link"><Globe size={14} /> Similarity Engine</a>
-              <a href="#tool-spell" className="nav-link"><CheckCircle size={14} /> Spell & Grammar</a>
+              <a href="#tool-spell" className="nav-link"><CheckCircle size={14} /> Grammar Pro</a>
             </div>
 
             <div className="nav-group mt-4">
-              <label>Support</label>
-              <a href="#errors" className="nav-link"><AlertTriangle size={14} /> Errors</a>
+              <label>Resources</label>
+              <a href="#errors" className="nav-link"><AlertTriangle size={14} /> Error Library</a>
             </div>
           </nav>
         </aside>
 
         {/* Main Content */}
-        <main className="docs-content" style={{ paddingBottom: '100px' }}>
-          <section id="welcome">
-            <h2 className="mb-4">Welcome</h2>
+        <main className="docs-content">
+          <section id="welcome" className="mb-5 pt-4">
+            <h2 className="mb-4">Getting Started</h2>
             <p className="text-secondary">
-              The Academic AI API provides access to state-of-the-art language models and document processing pipelines. 
-              Our endpoints are organized around REST principles and return JSON responses.
+              Academic AI uses a simple REST orientation. Follow these steps to perform your first retrieval-augmented query.
             </p>
-            <div className="info-box mt-3">
+
+            <div className="steps-timeline">
+              <div className="step-row">
+                <div className="step-circle">1</div>
+                <div className="step-info">
+                  <h4>Authentication</h4>
+                  <p>Obtain your <code>X-User-Id</code> (usually your email) to scope your data requests.</p>
+                </div>
+              </div>
+              <div className="step-row">
+                <div className="step-circle">2</div>
+                <div className="step-info">
+                  <h4>Upload Corpus</h4>
+                  <p>Send your research PDFs to the <code>/upload</code> endpoint. We'll automatically handle text extraction and vectorization.</p>
+                </div>
+              </div>
+              <div className="step-row">
+                <div className="step-circle">3</div>
+                <div className="step-info">
+                  <h4>Query Intelligence</h4>
+                  <p>Once indexed, use the Knowledge Chat endpoint to ask complex questions against your docs.</p>
+                </div>
+              </div>
+            </div>
+
+            <div className="info-box">
               <Terminal size={18} />
               <div>
-                <strong>Base URL:</strong> <code>{API_BASE}</code>
+                <strong>Global Base URL:</strong> <code>{API_BASE}</code>
               </div>
             </div>
           </section>
@@ -151,12 +208,15 @@ export default function Documentation() {
             id="auth"
             title="Authentication"
             icon={Shield}
-            description="All API requests must include your user identity in the headers. This ensures data isolation between users."
+            description="All API requests must include your user identity in the headers. This ensures data isolation and prevents unauthorized usage."
             params={[
               { name: "X-User-Id", type: "string", required: true, desc: "A unique identifier for the user session (e.g., email)." }
             ]}
-            requestExample={`curl -X GET "${API_BASE}/api/documents/" \\
-  -H "X-User-Id: user@example.com"`}
+            examples={{
+              bash: `curl -X GET "${API_BASE}/api/documents/" \\\n  -H "X-User-Id: user@example.com"`,
+              python: `import requests\n\nheaders = {"X-User-Id": "user@example.com"}\nresponse = requests.get("${API_BASE}/api/documents/", headers=headers)\nprint(response.json())`,
+              js: `fetch("${API_BASE}/api/documents/", {\n  headers: { "X-User-Id": "user@example.com" }\n})\n.then(res => res.json())\n.then(console.log);`
+            }}
           />
 
           <EndpointSection
@@ -165,55 +225,16 @@ export default function Documentation() {
             icon={FileText}
             method="POST"
             path="/api/documents/upload"
-            description="Uploads a file, extracts its text, and generates vector embeddings for retrieval-augmented generation."
+            description="Primary entry point for research data. Supports automated chunking and high-speed vector embedding generation."
             params={[
               { name: "file", type: "UploadFile", required: true, desc: "PDF, DOCX, or TXT file (Max 20MB)." }
             ]}
-            requestExample={`curl -X POST "${API_BASE}/api/documents/upload" \\
-  -H "X-User-Id: user@example.com" \\
-  -F "file=@/path/to/research.pdf"`}
-            responseExample={`{
-  "doc_id": "8f92a1b",
-  "filename": "research.pdf",
-  "num_chunks": 42,
-  "text_preview": "Abstract: This paper discusses..."
-}`}
-          />
-
-          <EndpointSection
-            id="doc-list"
-            title="List Documents"
-            icon={Activity}
-            method="GET"
-            path="/api/documents/"
-            description="Returns a list of all document metadata associated with your account."
-            requestExample={`curl -G "${API_BASE}/api/documents/" \\
-  -H "X-User-Id: user@example.com"`}
-            responseExample={`[
-  {
-    "doc_id": "8f92a1b",
-    "filename": "research.pdf",
-    "num_chunks": 42
-  }
-]`}
-          />
-
-          <EndpointSection
-            id="doc-delete"
-            title="Delete Document"
-            icon={AlertTriangle}
-            method="DELETE"
-            path="/api/documents/{doc_id}"
-            description="Permanently deletes a document, its physical file, and its indexed vectors."
-            params={[
-              { name: "doc_id", type: "string [path]", required: true, desc: "The unique ID of the document to delete." }
-            ]}
-            requestExample={`curl -X DELETE "${API_BASE}/api/documents/8f92a1b" \\
-  -H "X-User-Id: user@example.com"`}
-            responseExample={`{
-  "status": "success",
-  "message": "Document 8f92a1b deleted."
-}`}
+            examples={{
+              bash: `curl -X POST "${API_BASE}/api/documents/upload" \\\n  -H "X-User-Id: user@example.com" \\\n  -F "file=@/path/to/research.pdf"`,
+              python: `import requests\n\nfiles = {'file': open('research.pdf', 'rb')}\nheaders = {"X-User-Id": "user@example.com"}\nresponse = requests.post("${API_BASE}/api/documents/upload", headers=headers, files=files)\nprint(response.json())`,
+              js: `const formData = new FormData();\nformData.append('file', fileInput.files[0]);\n\nfetch("${API_BASE}/api/documents/upload", {\n  method: "POST",\n  headers: { "X-User-Id": "user@example.com" },\n  body: formData\n});`
+            }}
+            responseExample={`{\n  "doc_id": "8f92a1b",\n  "filename": "research.pdf",\n  "num_chunks": 42\n}`}
           />
 
           <EndpointSection
@@ -221,45 +242,19 @@ export default function Documentation() {
             title="Knowledge Chat (RAG)"
             icon={MessageSquare}
             method="POST"
-            path="/api/rag/"
-            description="Query your knowledge base. The AI will search through your uploaded documents to find relevant context before answering."
+            path="/api/rag/chat"
+            description="Advanced semantic search and generation. Combined vector retrieval with LLM reasoning to answer questions based on your specific document corpus."
             params={[
               { name: "question", type: "string", required: true, desc: "The query to ask the AI." },
               { name: "doc_id", type: "string", required: false, desc: "Optional filter to search only one document." },
-              { name: "top_k", type: "integer", required: false, desc: "Number of chunks to retrieve (default: 5)." }
+              { name: "top_k", type: "integer", required: false, desc: "Context chunks to retrieve (default: 5)." }
             ]}
-            requestExample={`curl -X POST "${API_BASE}/api/rag/" \\
-  -H "Content-Type: application/json" \\
-  -d '{
-    "question": "What is the conclusion of the paper?",
-    "top_k": 3
-  }'`}
-            responseExample={`{
-  "answer": "The paper concludes that...",
-  "sources": [
-    { "filename": "paper.pdf", "text": "..." }
-  ]
-}`}
-          />
-
-          <EndpointSection
-            id="chat-gen"
-            title="General AI Chat"
-            icon={Cpu}
-            method="POST"
-            path="/api/chat"
-            description="Send a message to the general-purpose AI assistant without any document-specific context."
-            params={[
-              { name: "message", type: "string", required: true, desc: "The user's message." },
-              { name: "session_id", type: "string", required: false, desc: "Optional ID for conversation tracking." }
-            ]}
-            requestExample={`curl -X POST "${API_BASE}/api/chat" \\
-  -H "Content-Type: application/json" \\
-  -d '{"message": "Summarize the history of AI."}'`}
-            responseExample={`{
-  "reply": "Artificial Intelligence began...",
-  "session_id": "default"
-}`}
+            examples={{
+              bash: `curl -X POST "${API_BASE}/api/rag/chat" \\\n  -H "Content-Type: application/json" \\\n  -d '{"question": "Summarize the theory."}'`,
+              python: `import requests\n\ndata = {"question": "What is the result?", "top_k": 3}\nresponse = requests.post("${API_BASE}/api/rag/chat", json=data)\nprint(response.json())`,
+              js: `fetch("${API_BASE}/api/rag/chat", {\n  method: "POST",\n  headers: { "Content-Type": "application/json" },\n  body: JSON.stringify({ question: "Key takeaways?" })\n});`
+            }}
+            responseExample={`{\n  "answer": "The theory suggests...",\n  "sources": [{ "filename": "doc.pdf", "score": 0.89 }]\n}`}
           />
 
           <EndpointSection
@@ -268,84 +263,31 @@ export default function Documentation() {
             icon={Globe}
             method="POST"
             path="/api/plagiarism/check"
-            description="Compare a block of text against all indexed documents in the system to detect overlaps."
+            description="Compare external text against your internal indexed knowledge to identify overlapping research or reused content."
             params={[
-              { name: "text", type: "string", required: true, desc: "The text to check for plagiarism." }
+              { name: "text", type: "string", required: true, desc: "The text to analyze for proximity." }
             ]}
-            requestExample={`curl -X POST "${API_BASE}/api/plagiarism/check" \\
-  -H "Content-Type: application/json" \\
-  -d '{"text": "Extracted paragraph from a paper..."}'`}
-            responseExample={`{
-  "overall_similarity": 12.5,
-  "flagged_sections": [
-    { "source_doc": "essay.pdf", "similarity": 0.95 }
-  ]
-}`}
+            examples={{
+              bash: `curl -X POST "${API_BASE}/api/plagiarism/check" \\\n  -d '{"text": "Sample research text..."}'`,
+              python: `import requests\n\nresponse = requests.post("${API_BASE}/api/plagiarism/check", json={"text": "..."})\nprint(response.json())`,
+              js: `fetch("${API_BASE}/api/plagiarism/check", {\n  method: "POST",\n  body: JSON.stringify({ text: "..." })\n});`
+            }}
+            responseExample={`{\n  "overall_similarity": 12.5,\n  "matches": [{ "doc": "old_paper.pdf", "score": 0.92 }]\n}`}
           />
 
-          <EndpointSection
-            id="tool-spell"
-            title="Spell & Grammar"
-            icon={CheckCircle}
-            method="POST"
-            path="/api/spellcheck/check"
-            description="Get advanced grammar suggestions and spelling corrections for academic text."
-            params={[
-              { name: "text", type: "string", required: true, desc: "The text to analyze." },
-              { name: "language", type: "string", required: false, desc: "ISO language code (default: en-US)." }
-            ]}
-            requestExample={`curl -X POST "${API_BASE}/api/spellcheck/check" \\
-  -H "Content-Type: application/json" \\
-  -d '{"text": "The analysis show that..."}'`}
-            responseExample={`{
-  "corrected_text": "The analysis shows that...",
-  "errors": [
-    { "message": "Potential grammar error", "replacements": ["shows"] }
-  ]
-}`}
-          />
-
-          <EndpointSection
-            id="errors"
-            title="Error Library"
-            icon={AlertTriangle}
-            description="We use standard HTTP status codes. Errors include a machine-readable code and a human-readable message."
-          >
+          <EndpointSection id="errors" title="Error Library" icon={AlertTriangle} 
+            description="We use semantic HTTP status codes. Every error includes a machine-readable code for automated handling.">
             <div className="table-responsive">
               <table className="param-table">
                 <thead>
-                  <tr>
-                    <th>Code</th>
-                    <th>Message</th>
-                    <th>Detail</th>
-                  </tr>
+                  <tr><th>Code</th><th>Status</th><th>Meaning</th></tr>
                 </thead>
                 <tbody>
-                  <tr>
-                    <td>400</td>
-                    <td>Bad Request</td>
-                    <td>Malformed request or invalid parameters.</td>
-                  </tr>
-                  <tr>
-                    <td>401</td>
-                    <td>Unauthorized</td>
-                    <td>Missing the required X-User-Id header.</td>
-                  </tr>
-                  <tr>
-                    <td>404</td>
-                    <td>Not Found</td>
-                    <td>The resource or document ID was not found.</td>
-                  </tr>
-                  <tr>
-                    <td>422</td>
-                    <td>Unprocessable Entity</td>
-                    <td>Validation error or failure in text extraction.</td>
-                  </tr>
-                  <tr>
-                    <td>500</td>
-                    <td>Server Error</td>
-                    <td>Internal processing error.</td>
-                  </tr>
+                  <tr><td>400</td><td>Bad Request</td><td>Malformed parameters or invalid JSON.</td></tr>
+                  <tr><td>401</td><td>Unauthorized</td><td>X-User-Id header is missing or invalid.</td></tr>
+                  <tr><td>404</td><td>Not Found</td><td>Document ID or endpoint does not exist.</td></tr>
+                  <tr><td>422</td><td>Unprocessable</td><td>Text extraction or vectorization failed.</td></tr>
+                  <tr><td>500</td><td>Server Error</td><td>Internal LLM or Vector Store failure.</td></tr>
                 </tbody>
               </table>
             </div>

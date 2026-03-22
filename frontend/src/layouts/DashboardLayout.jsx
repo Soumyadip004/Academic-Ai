@@ -41,7 +41,7 @@ export default function DashboardLayout() {
       <aside className="sidebar">
         <div className="sidebar-header">
           <Link to="/" className="sidebar-brand">
-            <GraduationCap className="icon" size={24} />
+            <img src="/logo.png" alt="Academic AI" className="brand-logo-img" />
             <div className="brand-text">
               <span>Academic AI</span>
               <span className="badge-enterprise">Enterprise</span>

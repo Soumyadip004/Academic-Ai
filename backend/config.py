@@ -2,7 +2,8 @@
 
 import os
 from pathlib import Path
-from pydantic_settings import BaseSettings
+from pydantic import Field
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 # Project root (parent of backend/)
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -18,16 +19,22 @@ class Settings(BaseSettings):
     groq_model: str = "llama-3.3-70b-versatile"
     openai_model: str = "gpt-4o-mini"
     ollama_model: str = "llama3.2"
-    ollama_base_url: str = "http://localhost:11434"
+    ollama_base_url: str = Field("http://localhost:11434", alias="OLLAMA_BASE_URL")
+    
+    # Hugging Face (Embeddings)
+    hf_token: str | None = Field(None, alias="HF_TOKEN")
+
+    # RAG Settings
     persist_data: bool = False
 
     # ── Embedding ───────────────────────────────────────────────────
     embedding_model: str = "sentence-transformers/all-mpnet-base-v2"
 
     # ── RAG ─────────────────────────────────────────────────────────
-    chunk_size: int = 500
-    chunk_overlap: int = 50
+    chunk_size: int = 1000
+    chunk_overlap: int = 200
     top_k_results: int = 5
+    max_input_tokens: int = 1500
 
     # ── Paths ───────────────────────────────────────────────────────
     upload_dir: Path = BASE_DIR / "uploads"

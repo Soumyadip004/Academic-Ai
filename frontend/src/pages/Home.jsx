@@ -23,15 +23,6 @@ export default function Home() {
                 View Pricing
               </Link>
             </div>
-            <div className="hero-trust">
-              <p>TRUSTED BY INNOVATIVE TEAMS WORLDWIDE</p>
-              <div className="trust-logos">
-                <span className="logo-placeholder">ACME Corp</span>
-                <span className="logo-placeholder">GlobalTech</span>
-                <span className="logo-placeholder">Nexus Edu</span>
-                <span className="logo-placeholder">Stark Ind</span>
-              </div>
-            </div>
           </div>
         </div>
         <div className="hero-bg-glow"></div>

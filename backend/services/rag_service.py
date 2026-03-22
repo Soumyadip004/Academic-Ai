@@ -81,11 +81,26 @@ def query(
         for meta, score in results
     ]
 
-    # 2. Build context block
-    context_block = "\n\n".join(
-        f"[Source {i+1} — {s.filename} (chunk {s.chunk_index})]:\n{s.text}"
-        for i, s in enumerate(sources)
-    )
+    # 2. Build context block and apply token limiting
+    # Approximation: 1 token ~= 4 characters. 
+    # We trim the context to stay within settings.max_input_tokens.
+    max_chars = settings.max_input_tokens * 4
+    current_chars = 0
+    final_sources = []
+    
+    context_parts = []
+    for i, s in enumerate(sources):
+        # Include similarity score for AI visibility
+        part = f"[Source {i+1} — {s.filename} (Similarity: {s.similarity_score:.4f})]:\n{s.text}"
+        if current_chars + len(part) > max_chars:
+            logger.warning("Token limit reached. Truncating context.")
+            break
+        context_parts.append(part)
+        current_chars += len(part)
+        final_sources.append(s)
+
+    context_block = "\n\n".join(context_parts)
+    sources = final_sources
 
     # 3. Build conversation history
     mem_key = (user_id or "anonymous", session_id)
@@ -99,18 +114,17 @@ def query(
 
     # 4. Compose prompt
     system_prompt = (
-        "You are an academic research assistant. Answer the user's question "
-        "based ONLY on the provided document excerpts. The excerpts are ranked by relevance; "
-        "Source 1 is the most pertinent. Prioritize information from Source 1 when generating your answer. "
-        "If the answer is not in the excerpts, say so clearly. Always cite which source(s) you "
-        "used by referencing [Source N]. Be thorough and accurate."
+        "You are a strict academic research assistant. "
+        "Use the PROVIDED DOCUMENT EXCERPTS below to answer the user's question. \n\n"
+        f"DOCUMENT EXCERPTS (Ranked by relevance):\n{context_block}\n\n"
+        "STRICT RULES:\n"
+        "1. If the answer is in the excerpts, provide it and cite the source using [Source N].\n"
+        "2. If the excerpts are totally irrelevant, say 'The document does not contain this information.'\n"
+        "3. NEVER ignore a source that contains the answer just to use your own general knowledge.\n"
+        "4. Be concise and precise."
     )
 
-    user_prompt = (
-        f"{history_text}"
-        f"Document excerpts:\n{context_block}\n\n"
-        f"Question: {question}"
-    )
+    user_prompt = f"{history_text}Question: {question}"
 
     # 5. Generate answer
     answer = get_llm_response(

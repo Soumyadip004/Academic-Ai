@@ -8,13 +8,14 @@ export default function PublicLayout() {
       <header className="public-header">
         <div className="container header-inner">
           <Link to="/" className="brand-logo">
-            <GraduationCap className="brand-icon" />
+            <img src="/logo.png" alt="Academic AI" className="brand-logo-img" />
             <span>Academic AI <span className="brand-badge">Enterprise</span></span>
           </Link>
 
           <nav className="header-nav">
             <NavLink to="/" className={({ isActive }) => (isActive ? 'active' : '')}>Home</NavLink>
             <NavLink to="/pricing" className={({ isActive }) => (isActive ? 'active' : '')}>Pricing</NavLink>
+            <NavLink to="/about" className={({ isActive }) => (isActive ? 'active' : '')}>About</NavLink>
             <NavLink to="/faq" className={({ isActive }) => (isActive ? 'active' : '')}>FAQ</NavLink>
             <NavLink to="/support" className={({ isActive }) => (isActive ? 'active' : '')}>Support</NavLink>
           </nav>
@@ -37,15 +38,18 @@ export default function PublicLayout() {
         <div className="container footer-inner">
           <div className="footer-brand">
             <div className="brand-logo">
-              <GraduationCap className="brand-icon" />
+              <img src="/logo.png" alt="Academic AI" className="brand-logo-img" />
               <span>Academic AI</span>
             </div>
             <p>The premier enterprise platform for academic and corporate research. Powerful AI tools designed for teams.</p>
             <div className="social-links">
               <a href="#"><Github size={20} /></a>
               <a href="#"><Twitter size={20} /></a>
-              <a href="#"><Linkedin size={20} /></a>
+              <a href="https://www.linkedin.com/in/soumyadip-c-251026229/" target="_blank" rel="noopener noreferrer"><Linkedin size={20} /></a>
             </div>
+            <a href="mailto:soumyadipchanda.work@gmail.com" className="d-block mt-3 text-secondary" style={{ fontSize: '0.85rem' }}>
+              soumyadipchanda.work@gmail.com
+            </a>
           </div>
           
           <div className="footer-links">
