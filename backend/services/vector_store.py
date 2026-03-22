@@ -34,7 +34,7 @@ class VectorStore:
         # Instead, we use the Hugging Face Inference API (server-side).
         import faiss
         self.model_id = settings.embedding_model
-        self.dimension = 384  # Dimension for all-MiniLM-L6-v2
+        self.dimension = 768  # Dimension for all-mpnet-base-v2
 
         # Inner-product index (embeddings are L2-normalised → equiv. to cosine)
         self.index = faiss.IndexFlatIP(self.dimension)

@@ -22,7 +22,7 @@ class Settings(BaseSettings):
     persist_data: bool = False
 
     # ── Embedding ───────────────────────────────────────────────────
-    embedding_model: str = "all-MiniLM-L6-v2"
+    embedding_model: str = "sentence-transformers/all-mpnet-base-v2"
 
     # ── RAG ─────────────────────────────────────────────────────────
     chunk_size: int = 500
