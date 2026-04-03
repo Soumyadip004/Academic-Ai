@@ -18,7 +18,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
-from backend.api.routes import chat, documents, plagiarism, rag, spellcheck, auth
+from backend.api.routes import chat, documents, plagiarism, rag, spellcheck, auth, summarize
 from backend.config import settings
 from backend.services.vector_store import VectorStore
 
@@ -66,6 +66,7 @@ app.include_router(plagiarism.router)
 app.include_router(spellcheck.router)
 app.include_router(chat.router)
 app.include_router(auth.router)
+app.include_router(summarize.router)
 
 
 @app.get("/", tags=["Health"])

@@ -12,8 +12,7 @@ export default function Summarizer() {
   const [wordCount, setWordCount] = useState(0);
 
   const handleSummarize = async () => {
-    const words = text.trim() ? text.trim().split(/\s+/).length : 0;
-    if (!text.trim() || words > 200) return;
+    if (!text.trim() || wordCount > 2000) return;
 
     if (credits < 25) {
       setResult("⚠️ **Insufficient Credits**. You need 25 credits to generate a summary. Please [Upgrade to Basic](/pricing) to continue.");
@@ -21,21 +20,28 @@ export default function Summarizer() {
     }
 
     setLoading(true);
-    
-    // Simulate API call for frontend-only
-    setTimeout(() => {
-      deductCredits(25);
-      let output = "";
-      if (summaryType === 'executive') {
-        output = `### Executive Summary\n\nThe provided text analyzes key structural paradigms. It suggests that migrating to an enterprise framework boosts productivity by 40% while centralizing security controls.\n\n**Strategic Value:** Highly Recommended.`;
-      } else if (summaryType === 'bullets') {
-        output = `### Key Takeaways\n- Enterprise migration increases productivity.\n- Centralized security controls reduce risk.\n- Implementation requires a phased rollout over 3 months.`;
-      } else {
-        output = `### Action Items\n1. Schedule migration kickoff.\n2. Audit existing security protocols.\n3. Draft training materials for the new framework.`;
+    setResult(null);
+
+    try {
+      const response = await fetch("/api/summarize/", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text, type: summaryType })
+      });
+
+      if (!response.ok) {
+        const err = await response.json();
+        throw new Error(err.detail || "Summary failed");
       }
-      setResult(output);
+
+      const data = await response.json();
+      deductCredits(25);
+      setResult(data.summary);
+    } catch (err) {
+      setResult(`**Error:** ${err.message}`);
+    } finally {
       setLoading(false);
-    }, 1500);
+    }
   };
 
   return (
@@ -60,16 +66,16 @@ export default function Summarizer() {
               setText(val);
               setWordCount(val.trim() ? val.trim().split(/\s+/).length : 0);
             }}
-            style={{ borderColor: wordCount > 200 ? 'var(--danger)' : '' }}
+            style={{ borderColor: wordCount > 2000 ? 'var(--danger)' : '' }}
           />
           <div style={{ 
             fontSize: '0.75rem', 
             marginTop: '8px', 
             textAlign: 'right',
-            color: wordCount > 200 ? 'var(--danger)' : 'var(--text-muted)'
+            color: wordCount > 2000 ? 'var(--danger)' : 'var(--text-muted)'
           }}>
-            {wordCount} / 200 words
-            {wordCount > 200 && <span style={{ marginLeft: '8px' }}>⚠️ Limit exceeded</span>}
+            {wordCount} / 2000 words
+            {wordCount > 2000 && <span style={{ marginLeft: '8px' }}>⚠️ Limit exceeded</span>}
           </div>
           
           <div className="summary-controls mt-4">
@@ -107,7 +113,7 @@ export default function Summarizer() {
             <button 
               className="btn btn-primary w-100" 
               onClick={handleSummarize}
-              disabled={loading || !text.trim() || wordCount > 200}
+              disabled={loading || !text.trim() || wordCount > 2000}
             >
               {loading ? <><span className="spinner"/> Generating...</> : <><Zap size={16}/> Extract Insights</>}
             </button>
