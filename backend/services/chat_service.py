@@ -55,6 +55,8 @@ def get_llm_response(system_prompt: str, user_prompt: str) -> str:
 
 # ── Private helpers ─────────────────────────────────────────────────────────
 
+import time
+
 def _call_llm(messages: list[dict[str, str]]) -> str:
     """Route an LLM call to the configured provider."""
     provider = settings.llm_provider.lower()
@@ -70,29 +72,56 @@ def _call_llm(messages: list[dict[str, str]]) -> str:
 
 
 def _call_groq(messages: list[dict[str, str]]) -> str:
-    from groq import Groq
+    from groq import Groq, APIConnectionError, APIStatusError
+    
+    max_retries = 3
+    retry_delay = 2
 
-    client = Groq(api_key=settings.groq_api_key)
-    response = client.chat.completions.create(
-        model=settings.groq_model,
-        messages=messages,
-        temperature=0.3,
-        max_tokens=2048,
-    )
-    return response.choices[0].message.content.strip()
+    for attempt in range(1, max_retries + 1):
+        try:
+            client = Groq(api_key=settings.groq_api_key)
+            response = client.chat.completions.create(
+                model=settings.groq_model,
+                messages=messages,
+                temperature=0.3,
+                max_tokens=2048,
+            )
+            return response.choices[0].message.content.strip()
+        except (APIConnectionError, APIStatusError) as e:
+            if attempt == max_retries:
+                logger.error("Groq API failed after %d attempts: %s", max_retries, e)
+                return f"Error: Failed to connect to Groq API after multiple attempts. Please try again later. ({e})"
+            logger.warning("Groq API attempt %d failed, retrying in %ds...", attempt, retry_delay)
+            time.sleep(retry_delay * attempt)
+        except Exception as e:
+            logger.error("Unexpected error in Groq call: %s", e)
+            return f"Error: An unexpected error occurred while calling the AI. ({e})"
 
 
 def _call_openai(messages: list[dict[str, str]]) -> str:
-    from openai import OpenAI
+    from openai import OpenAI, APIConnectionError, APIStatusError
 
-    client = OpenAI(api_key=settings.openai_api_key)
-    response = client.chat.completions.create(
-        model=settings.openai_model,
-        messages=messages,
-        temperature=0.3,
-        max_tokens=2048,
-    )
-    return response.choices[0].message.content.strip()
+    max_retries = 3
+    retry_delay = 2
+
+    for attempt in range(1, max_retries + 1):
+        try:
+            client = OpenAI(api_key=settings.openai_api_key)
+            response = client.chat.completions.create(
+                model=settings.openai_model,
+                messages=messages,
+                temperature=0.3,
+                max_tokens=2048,
+            )
+            return response.choices[0].message.content.strip()
+        except (APIConnectionError, APIStatusError) as e:
+            if attempt == max_retries:
+                logger.error("OpenAI API failed after %d attempts: %s", max_retries, e)
+                return f"Error: Failed to connect to OpenAI API after multiple attempts. ({e})"
+            time.sleep(retry_delay * attempt)
+        except Exception as e:
+            logger.error("Unexpected error in OpenAI call: %s", e)
+            return f"Error: An unexpected error occurred. ({e})"
 
 
 def _call_ollama(messages: list[dict[str, str]]) -> str:
@@ -105,6 +134,10 @@ def _call_ollama(messages: list[dict[str, str]]) -> str:
         "stream": False,
         "options": {"temperature": 0.3},
     }
-    resp = _requests.post(url, json=payload, timeout=120)
-    resp.raise_for_status()
-    return resp.json()["message"]["content"].strip()
+    try:
+        resp = _requests.post(url, json=payload, timeout=120)
+        resp.raise_for_status()
+        return resp.json()["message"]["content"].strip()
+    except Exception as e:
+        logger.error("Ollama call failed: %s", e)
+        return f"Error: Could not connect to local AI (Ollama). ({e})"

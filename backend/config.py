@@ -28,7 +28,7 @@ class Settings(BaseSettings):
     persist_data: bool = False
 
     # ── Embedding ───────────────────────────────────────────────────
-    embedding_model: str = "sentence-transformers/all-mpnet-base-v2"
+    embedding_model: str = "BAAI/bge-large-en"
 
     # ── RAG ─────────────────────────────────────────────────────────
     chunk_size: int = 1000

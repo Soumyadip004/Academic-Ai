@@ -5,8 +5,6 @@ from __future__ import annotations
 import logging
 from collections import defaultdict
 
-from langchain_text_splitters import RecursiveCharacterTextSplitter
-
 from backend.config import settings
 from backend.models.schemas import RAGChatResponse, SourceChunk
 from backend.services.vector_store import VectorStore
@@ -19,25 +17,70 @@ _rag_memory: dict[tuple[str, str], list[dict[str, str]]] = defaultdict(list)
 
 MAX_HISTORY = 10  # Keep last N turns per session
 
+class SimpleRecursiveSplitter:
+    """A zero-dependency text splitter that mimics LangChain's RecursiveCharacterTextSplitter.
+    
+    Prevents importing 'transformers' and 'torch' which consume ~200MB+ of RAM.
+    """
+    def __init__(self, chunk_size: int, chunk_overlap: int, separators: list[str] | None = None):
+        self.chunk_size = chunk_size
+        self.chunk_overlap = chunk_overlap
+        self.separators = separators or ["\n\n", "\n", ". ", " ", ""]
 
-# ── Public API ──────────────────────────────────────────────────────────────
+    def split_text(self, text: str) -> list[str]:
+        """Split text into chunks by recursively trying separators."""
+        # Simple splitting logic: starting with most aggressive separators
+        def _split(txt: str, seps: list[str]) -> list[str]:
+            if len(txt) <= self.chunk_size:
+                return [txt]
+            
+            if not seps:
+                # If no more separators, just force cut
+                offset = max(1, self.chunk_size - self.chunk_overlap)
+                return [txt[i : i + self.chunk_size] for i in range(0, len(txt), offset)]
+            
+            sep = seps[0]
+            parts = txt.split(sep)
+            
+            chunks = []
+            current_chunk = ""
+            
+            for part in parts:
+                join_sep = sep if current_chunk else ""
+                if current_chunk and len(current_chunk) + len(sep) + len(part) > self.chunk_size:
+                    chunks.append(current_chunk)
+                    # Keep overlap
+                    overlap_pos = max(0, len(current_chunk) - self.chunk_overlap)
+                    # Use slicing correctly
+                    current_chunk = current_chunk[overlap_pos:] + sep + part
+                else:
+                    current_chunk += join_sep + part
+            
+            if current_chunk:
+                chunks.append(current_chunk)
+                
+            # If a chunk is still too big, recurse with next separator
+            result = []
+            for chunk in chunks:
+                if len(chunk) > self.chunk_size:
+                    result.extend(_split(chunk, seps[1:]))
+                else:
+                    result.append(chunk)
+            return result
+
+        return _split(text, self.separators)
 
 def chunk_text(text: str) -> list[str]:
-    """Split *text* into overlapping chunks using LangChain splitter."""
-    splitter = RecursiveCharacterTextSplitter(
+    """Split *text* into overlapping chunks using lightweight custom splitter."""
+    splitter = SimpleRecursiveSplitter(
         chunk_size=settings.chunk_size,
         chunk_overlap=settings.chunk_overlap,
-        length_function=len,
-        separators=["\n\n", "\n", ". ", " ", ""],
     )
     return splitter.split_text(text)
 
 
 def index_document(doc_id: str, user_id: str, filename: str, text: str) -> int:
-    """Chunk a document, embed the chunks, and store in the vector DB.
-
-    Returns the number of chunks created.
-    """
+    """Chunk a document, embed the chunks, and store in the vector DB."""
     chunks = chunk_text(text)
     if not chunks:
         return 0
@@ -81,19 +124,15 @@ def query(
         for meta, score in results
     ]
 
-    # 2. Build context block and apply token limiting
-    # Approximation: 1 token ~= 4 characters. 
-    # We trim the context to stay within settings.max_input_tokens.
+    # 2. Build context block
     max_chars = settings.max_input_tokens * 4
     current_chars = 0
     final_sources = []
     
     context_parts = []
     for i, s in enumerate(sources):
-        # Include similarity score for AI visibility
-        part = f"[Source {i+1} — {s.filename} (Similarity: {s.similarity_score:.4f})]:\n{s.text}"
+        part = f"[Source {i+1} — {s.filename}]:\n{s.text}"
         if current_chars + len(part) > max_chars:
-            logger.warning("Token limit reached. Truncating context.")
             break
         context_parts.append(part)
         current_chars += len(part)
@@ -116,12 +155,12 @@ def query(
     system_prompt = (
         "You are a strict academic research assistant. "
         "Use the PROVIDED DOCUMENT EXCERPTS below to answer the user's question. \n\n"
-        f"DOCUMENT EXCERPTS (Ranked by relevance):\n{context_block}\n\n"
+        f"DOCUMENT EXCERPTS:\n{context_block}\n\n"
         "STRICT RULES:\n"
         "1. If the answer is in the excerpts, provide it and cite the source using [Source N].\n"
         "2. If the excerpts are totally irrelevant, say 'The document does not contain this information.'\n"
-        "3. NEVER ignore a source that contains the answer just to use your own general knowledge.\n"
-        "4. Be concise and precise."
+        "3. NEVR ignore excerpts to use general knowledge.\n"
+        "4. Be concise."
     )
 
     user_prompt = f"{history_text}Question: {question}"
@@ -135,9 +174,5 @@ def query(
     # 6. Update memory
     _rag_memory[mem_key].append({"role": "user", "content": question})
     _rag_memory[mem_key].append({"role": "assistant", "content": answer})
-
-    # Trim memory
-    if len(_rag_memory[mem_key]) > MAX_HISTORY * 2:
-        _rag_memory[mem_key] = _rag_memory[mem_key][-(MAX_HISTORY * 2):]
 
     return RAGChatResponse(answer=answer, sources=sources)

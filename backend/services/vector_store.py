@@ -18,84 +18,93 @@ from backend.models.schemas import ChunkMetadata
 
 logger = logging.getLogger(__name__)
 
-# ── HuggingFace Inference API (new router endpoint) ────────────────────
-HF_API_URL = "https://router.huggingface.co/models/{model}"
-MAX_RETRIES = 3
-RETRY_DELAY = 2  # seconds
+import numpy as np
+import chromadb
+from chromadb.config import Settings as ChromaSettings
+from huggingface_hub import InferenceClient
+
+from backend.config import settings
+from backend.models.schemas import ChunkMetadata
+
+logger = logging.getLogger(__name__)
+
 BATCH_SIZE = 32  # max texts per API call
 
-
 class HuggingFaceEmbeddingFunction:
-    """Lightweight embedding function using HuggingFace Inference API.
+    """Lightweight embedding function using official HuggingFace InferenceClient.
     
-    No model download required — embeddings are computed via HTTP calls.
-    Uses ~0 MB of RAM for model weights.
+    Uses ~0 MB of local RAM for weights. Robust against endpoint migrations.
     """
 
     def __init__(self, model_name: str, api_key: str | None = None):
         self.model_name = model_name
-        self.api_key = api_key
-        self.api_url = HF_API_URL.format(model=model_name)
-        self._headers = {}
-        if api_key:
-            self._headers["Authorization"] = f"Bearer {api_key}"
-        logger.info("HF Embedding API initialized: %s", self.api_url)
+        self.client = InferenceClient(api_key=api_key)
+        
+        # Dimension lookup
+        if "large" in model_name: self._dim = 1024
+        elif "base" in model_name: self._dim = 768
+        else: self._dim = 384
+        
+        logger.info("HF InferenceClient ready for model: %s (dim=%d)", model_name, self._dim)
+
+    # ── ChromaDB interface methods ─────────────────────────────────
+    def name(self) -> str:
+        return "huggingface_client"
+
+    @staticmethod
+    def build(config: dict) -> "HuggingFaceEmbeddingFunction":
+        return HuggingFaceEmbeddingFunction(
+            model_name=config.get("model_name", "BAAI/bge-large-en"),
+            api_key=config.get("api_key"),
+        )
+
+    def get_config(self) -> dict:
+        return {"model_name": self.model_name}
 
     def __call__(self, input: list[str]) -> list[list[float]]:
-        """Embed a list of texts via the HuggingFace API."""
+        return self._embed_texts(input)
+
+    def embed_documents(self, documents: list[str]) -> list[list[float]]:
+        return self._embed_texts(documents)
+
+    def embed_query(self, input: str) -> list[float]:
+        # BGE models work better with instruction prefix for queries
+        if "bge" in self.model_name.lower():
+            query_text = f"Represent this sentence for searching relevant passages: {input}"
+        else:
+            query_text = input
+            
+        result = self._embed_texts([query_text])
+        return result[0]
+
+    # ── Core embedding logic ───────────────────────────────────────
+    def _embed_texts(self, texts: list[str]) -> list[list[float]]:
+        """Embed a list of texts using the InferenceClient."""
         all_embeddings = []
-
-        # Process in batches to avoid payload limits
-        for i in range(0, len(input), BATCH_SIZE):
-            batch = input[i : i + BATCH_SIZE]
-            embeddings = self._embed_batch(batch)
-            all_embeddings.extend(embeddings)
-
-        return all_embeddings
-
-    def _embed_batch(self, texts: list[str]) -> list[list[float]]:
-        """Embed a single batch with retry logic."""
-        payload = {
-            "inputs": texts,
-            "options": {"wait_for_model": True}
-        }
-
-        for attempt in range(1, MAX_RETRIES + 1):
+        for i in range(0, len(texts), BATCH_SIZE):
+            batch = texts[i : i + BATCH_SIZE]
             try:
-                resp = requests.post(
-                    self.api_url,
-                    headers=self._headers,
-                    json=payload,
-                    timeout=60
-                )
-
-                if resp.status_code == 503:
-                    # Model is loading on HF side, wait and retry
-                    wait = RETRY_DELAY * attempt
-                    logger.warning("HF model loading, retrying in %ds...", wait)
-                    time.sleep(wait)
-                    continue
-
-                resp.raise_for_status()
-                result = resp.json()
-
-                # HF returns list[list[float]] for sentence-transformers
-                if isinstance(result, list) and len(result) > 0:
-                    if isinstance(result[0], list):
-                        return result
-                    # Single text returns flat list
-                    return [result]
-
-                logger.error("Unexpected HF response format: %s", type(result))
-                return [[0.0] * 384] * len(texts)
-
-            except requests.exceptions.RequestException as e:
-                logger.error("HF API attempt %d failed: %s", attempt, e)
-                if attempt < MAX_RETRIES:
-                    time.sleep(RETRY_DELAY * attempt)
-
-        logger.critical("ALL HF EMBEDDING ATTEMPTS FAILED. Returning zero vectors.")
-        return [[0.0] * 384] * len(texts)
+                # raw can be [batch x dim] or [batch x seq x dim] (as list of lists)
+                raw = self.client.feature_extraction(batch, model=self.model_name)
+                
+                batch_vectors = []
+                for entry in raw:
+                    entry_arr = np.array(entry)
+                    if entry_arr.ndim == 2:
+                        # [seq x dim] -> pool to [dim]
+                        batch_vectors.append(np.mean(entry_arr, axis=0).tolist())
+                    else:
+                        # Already [dim]
+                        batch_vectors.append(entry_arr.tolist())
+                
+                all_embeddings.extend(batch_vectors)
+                
+            except Exception as e:
+                logger.error("HF Inference error: %s", e)
+                # Fallback to zero vectors
+                all_embeddings.extend([[0.0] * self._dim] * len(batch))
+                
+        return all_embeddings
 
 
 class VectorStore:
@@ -121,7 +130,13 @@ class VectorStore:
             model_name=model_name,
             api_key=hf_token
         )
-        self.dimension = 384  # all-MiniLM-L6-v2
+        # Set dimension based on model (bge-large = 1024, MiniLM = 384)
+        if "bge-large" in model_name:
+            self.dimension = 1024
+        elif "bge-base" in model_name:
+            self.dimension = 768
+        else:
+            self.dimension = 384
 
         # Initialize ChromaDB client
         self.client = chromadb.PersistentClient(
@@ -129,11 +144,10 @@ class VectorStore:
             settings=ChromaSettings(allow_reset=True)
         )
 
-        # Get or create collection WITH the HF embedding function
+        # No embedding function passed — we handle embeddings ourselves
         self.collection = self.client.get_or_create_collection(
             name="academic_ai",
-            metadata={"hnsw:space": "cosine"},
-            embedding_function=self._embedding_fn
+            metadata={"hnsw:space": "cosine"}
         )
 
         logger.info(
@@ -165,6 +179,9 @@ class VectorStore:
         if not texts:
             return 0
 
+        # Compute embeddings ourselves via HF API
+        embeddings = self._embedding_fn(texts)
+
         # Create unique IDs for each chunk
         ids = [f"{doc_id}_{i}" for i in range(len(texts))]
 
@@ -179,9 +196,10 @@ class VectorStore:
             for i in range(len(texts))
         ]
 
-        # ChromaDB calls self._embedding_fn(texts) internally
+        # Pass pre-computed embeddings directly
         self.collection.add(
             ids=ids,
+            embeddings=embeddings,
             metadatas=metadatas,
             documents=texts
         )
@@ -194,8 +212,7 @@ class VectorStore:
         self.client.delete_collection("academic_ai")
         self.collection = self.client.get_or_create_collection(
             name="academic_ai",
-            metadata={"hnsw:space": "cosine"},
-            embedding_function=self._embedding_fn
+            metadata={"hnsw:space": "cosine"}
         )
         logger.info("ChromaDB collection cleared.")
 
@@ -221,9 +238,11 @@ class VectorStore:
         elif user_id:
             where_filter = {"user_id": user_id}
 
-        # ChromaDB embeds the query via HF API automatically
+        # Compute query embedding ourselves
+        query_embedding = self._embedding_fn([ query ])
+
         results = self.collection.query(
-            query_texts=[query],
+            query_embeddings=query_embedding,
             n_results=target_k,
             where=where_filter if where_filter else None,
             include=["documents", "metadatas", "distances"]
