@@ -88,3 +88,9 @@ export async function plagiarismCheck(text) {
   const { data } = await api.post('/plagiarism/check', { text })
   return data
 }
+
+// ── Summarization ──────────────────────────────────────────
+export async function summarizeText(text, type = 'executive') {
+  const { data } = await api.post('/summarize/', { text, type })
+  return data
+}

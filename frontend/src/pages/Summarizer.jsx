@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { FileText, AlignLeft, Zap, Download } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import { useAuth } from '../context/AuthContext';
+import { summarizeText } from '../api';
 
 export default function Summarizer() {
   const { credits, deductCredits } = useAuth();
@@ -23,22 +24,12 @@ export default function Summarizer() {
     setResult(null);
 
     try {
-      const response = await fetch("/api/summarize/", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text, type: summaryType })
-      });
-
-      if (!response.ok) {
-        const err = await response.json();
-        throw new Error(err.detail || "Summary failed");
-      }
-
-      const data = await response.json();
+      const data = await summarizeText(text, summaryType);
       deductCredits(25);
       setResult(data.summary);
     } catch (err) {
-      setResult(`**Error:** ${err.message}`);
+      const errMsg = err.response?.data?.detail || err.message || "Summary failed";
+      setResult(`**Error:** ${errMsg}`);
     } finally {
       setLoading(false);
     }
